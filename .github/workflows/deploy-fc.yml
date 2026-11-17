@@ -56,10 +56,12 @@ jobs:
             -v "$PWD/src/cert-generator:/code" \
             -w /code \
             -e PYTHONPATH=/code/python:/code:/opt/python \
-            registry.cn-beijing.aliyuncs.com/aliyunfc/runtime-python3.10:build-latest \
+            registry.cn-beijing.aliyuncs.com/aliyunfc/runtime-python3.10:build-latest@sha256:df76af127b5c66ed0af03a8685c86f60bead6e72db75bdcc416d1043ae86d641 \
             -lc '
               set -euo pipefail
-              export PATH=/usr/local/envs/py310/bin:$PATH
+              export PATH=/var/fc/lang/python3.10/bin:$PATH
+              python3 -c "import sys; assert sys.version_info[:2] == (3, 10), sys.version"
+              python3 --version
               rm -rf python
               python3 -m pip install --no-cache-dir --no-compile -r requirements.txt -t python
               python3 check_dependencies.py
