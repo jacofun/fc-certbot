@@ -1,0 +1,99 @@
+name: Deploy cert-generator to FC
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "src/cert-generator/**"
+      - "scripts/**"
+      - "test/**"
+      - ".github/workflows/**"
+  pull_request:
+    paths:
+      - "src/cert-generator/**"
+      - "scripts/**"
+      - "test/**"
+      - ".github/workflows/deploy-fc.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: fc-certbot-deploy-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    if: github.event_name == 'pull_request' || github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install deployment SDK
+        run: python -m pip install -r scripts/requirements-deploy.txt
+      - name: Test deployment and configuration preservation
+        run: python -m unittest discover -s test -v
+      - name: Validate deployment settings
+        if: github.event_name != 'pull_request'
+        env:
+          ALIYUN_FC_ACCESS_KEY_ID: ${{ secrets.ALIYUN_FC_ACCESS_KEY_ID }}
+          ALIYUN_FC_ACCESS_KEY_SECRET: ${{ secrets.ALIYUN_FC_ACCESS_KEY_SECRET }}
+          ALIYUN_FC_REGION: ${{ vars.ALIYUN_FC_REGION }}
+          ALIYUN_FC_FUNCTION_NAME: ${{ vars.ALIYUN_FC_FUNCTION_NAME }}
+        run: python scripts/deploy_fc.py --validate
+      - name: Build and check dependencies in FC Python 3.10
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker run --rm --platform linux/amd64 \
+            --entrypoint /bin/bash \
+            -v "$PWD/src/cert-generator:/code" \
+            -w /code \
+            -e PYTHONPATH=/code/python:/code:/opt/python \
+            registry.cn-beijing.aliyuncs.com/aliyunfc/runtime-python3.10:build-latest \
+            -lc '
+              set -euo pipefail
+              export PATH=/usr/local/envs/py310/bin:$PATH
+              rm -rf python
+              python3 -m pip install --no-cache-dir --no-compile -r requirements.txt -t python
+              python3 check_dependencies.py
+              python3 -c "from certbot.main import main; main([\"--version\"])"
+            '
+      - name: Package function code
+        run: python scripts/package_fc.py
+      - name: Check main still points to this commit
+        if: github.event_name != 'pull_request'
+        id: current
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          current_sha=$(gh api "repos/$GITHUB_REPOSITORY/commits/main" --jq '.sha')
+          if [ "$current_sha" = "$GITHUB_SHA" ]; then
+            echo 'deploy=true' >> "$GITHUB_OUTPUT"
+          else
+            echo 'deploy=false' >> "$GITHUB_OUTPUT"
+            echo 'A newer main commit exists; skipping this outdated deployment.'
+          fi
+      - name: Deploy and verify FC code
+        if: github.event_name != 'pull_request' && steps.current.outputs.deploy == 'true'
+        env:
+          ALIYUN_FC_ACCESS_KEY_ID: ${{ secrets.ALIYUN_FC_ACCESS_KEY_ID }}
+          ALIYUN_FC_ACCESS_KEY_SECRET: ${{ secrets.ALIYUN_FC_ACCESS_KEY_SECRET }}
+          ALIYUN_FC_REGION: ${{ vars.ALIYUN_FC_REGION }}
+          ALIYUN_FC_FUNCTION_NAME: ${{ vars.ALIYUN_FC_FUNCTION_NAME }}
+        run: python scripts/deploy_fc.py
+      - name: Save deployment package and verification result
+        uses: actions/upload-artifact@v4
+        with:
+          name: cert-generator-${{ github.sha }}
+          path: |
+            dist/cert-generator.zip
+            dist/deploy-result.json
+          retention-days: 7

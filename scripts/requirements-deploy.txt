@@ -1,0 +1,2 @@
+alibabacloud-fc20230330==4.8.5
+PyYAML==6.0.3

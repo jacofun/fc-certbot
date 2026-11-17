@@ -2,3 +2,4 @@ src/cert-generator/python/
 __pycache__/
 *.py[cod]
 .venv*/
+dist/

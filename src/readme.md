@@ -148,6 +148,37 @@ python3.10 check_dependencies.py
 
 `check_dependencies.py` 验证锁定包的版本与来源、导入真实 FC 入口，并离线生成及验证一个 `.invalid` 域名的 RSA CSR。检查使用虚拟凭据并阻断网络，不会申请真实证书、更新 DNS 或访问云账户。GitHub 的 Check certificate dependencies 工作流在 Python 3.10 和 3.12 上执行同一检查。验证通过只说明依赖和本地 CSR 路径可用，实际签发仍需验证域名解析、角色权限与 ACME 连通性。
 
-仓库原有 main 发布工作流只负责上传 Serverless 应用模板，并不会更新你已有的 FC 实例。已有 FC 函数需要手工部署新代码包后，再使用原 domainName 测试事件调用。
+仓库现已使用 Deploy cert-generator to FC 工作流，main 更新会构建并更新指定的现有 FC 证书申请函数。部署完成后，再使用原 domainName 测试事件调用。
 
 维护依赖时先修改 `src/cert-generator/requirements.in`，再使用 Python 3.10 解析约束生成锁定文件（例如 `uv pip compile src/cert-generator/requirements.in --python-version 3.10 --no-annotate --no-header -o src/cert-generator/requirements.txt`），并通过两种 Python 版本的 CI。不要直接用更高版本解释器的 pip freeze 覆盖 FC 3.10 锁定文件，否则会混入仅支持 Python 3.11+ 的间接依赖。
+
+
+## GitHub 推送后自动部署现有证书申请函数
+
+原模板的 `s registry publish` 流程已替换为 FC 代码部署，不需要 Serverless 模板仓库 Token。工作流读取本仓库 Settings → Secrets and variables → Actions 中的配置：
+
+Repository secrets：
+
+```json
+{
+  "ALIYUN_FC_ACCESS_KEY_ID": "部署账号 AccessKey ID",
+  "ALIYUN_FC_ACCESS_KEY_SECRET": "部署账号 AccessKey Secret"
+}
+```
+
+Repository variables：
+
+```json
+{
+  "ALIYUN_FC_REGION": "cn-hangzhou",
+  "ALIYUN_FC_FUNCTION_NAME": "实际的 cert-generator 函数名称"
+}
+```
+
+地域以证书申请函数所在地域为准，不是它管理证书的业务函数地域。模板中的申请函数位于杭州或新加坡；部署账号需要目标函数的 `fc:GetFunction` 和 `fc:UpdateFunction` 权限。现有函数必须为 `python3.10`、`index.handler`，不匹配时在写入前停止。
+
+推送 main 后，工作流会先验证部署配置，在 FC 官方 Python 3.10 构建镜像内重新安装锁定依赖、导入实际入口、生成离线 CSR，打包代码后通过官方 SDK 更新函数。PR 仅构建验证，不访问云账户。并发部署串行执行，过时的 main 提交不覆盖新版本。
+
+部署保持函数角色、触发器、运行时、入口、超时、网络及其他环境变量，只将 PYTHONPATH 调整为 `/code/python:/code:/opt/python` 优先，并将原有额外路径追加保留。已有运行配置和私密值不会写入日志或部署产物。上传后读回代码 CRC64、运行时及配置进行校验，Actions Summary 中记录 sourceCommit 与代码校验值，ZIP 包与验证报告可在本次 Actions 的 Artifacts 下载。
+
+工作流只更新配置所指向的一个现有申请函数，不创建应用中心模板中的其他函数，也不触发真实证书申请。若有其他地域的申请函数需要更新，请切换 Repository variables 到对应目标后，在 main 上执行 workflow_dispatch。实际申请使用原 domainName 测试事件，续期继续由已部署的定时管理函数负责。
