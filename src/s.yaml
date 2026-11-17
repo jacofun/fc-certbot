@@ -9,9 +9,13 @@ resources:
     component: fc3
     actions:
       pre-deploy:
-        - run: mkdir python
+        - run: rm -rf python
           path: ./cert-generator
-        - run: export PATH=/usr/local/envs/py310/bin:$PATH && pip3 install -r requirements.txt -t ./python
+        - run: mkdir -p python
+          path: ./cert-generator
+        - run: export PATH=/usr/local/envs/py310/bin:$PATH && python3 -m pip install --no-cache-dir -r requirements.txt -t ./python
+          path: ./cert-generator
+        - run: export PATH=/usr/local/envs/py310/bin:$PATH && python3 check_dependencies.py
           path: ./cert-generator
     props:
       region: cn-hangzhou
@@ -25,7 +29,7 @@ resources:
       functionName: ${vars.certGeneratorFunctionName}
       runtime: python3.10
       environmentVariables:
-        PYTHONPATH: /opt/python:/code/python:/code
+        PYTHONPATH: /code/python:/code:/opt/python
       code: ./cert-generator
       asyncInvokeConfig:
         asyncTask: true
@@ -45,7 +49,7 @@ resources:
       functionName: ${vars.certGeneratorFunctionName}
       runtime: python3.10
       environmentVariables:
-        PYTHONPATH: /opt/python:/code/python:/code
+        PYTHONPATH: /code/python:/code:/opt/python
       code: ./cert-generator
       asyncInvokeConfig:
         asyncTask: true

@@ -127,3 +127,27 @@
 | <center>微信公众号：`serverless`</center>                                                                                         | <center>微信小助手：`xiaojiangwh`</center>                                                                                        | <center>钉钉交流群：`33947367`</center>                                                                                           |
 </p>
 </devgroup>
+
+
+## 修复 OpenSSL.crypto.X509Req 初始化错误
+
+`certbot==2.11.1` 与未锁定的间接依赖混装，会在导入旧证书代码时遇到已移除的 `OpenSSL.crypto.X509Req` 等 API。此版本将 Certbot/ACME 升级至 5.10.0，以 FC 的 Python 3.10 为解析目标，锁定包括 josepy、pyOpenSSL、cryptography 在内的完整依赖集合，支持 Python 3.10+。新依赖通过 cryptography 的 CSR API 工作，不要求 pyOpenSSL 恢复已删除的接口。
+
+重新部署前必须清理旧的依赖目录，不能只修改 requirements.txt 后再次点击“测试函数”。在 Linux/Python 3.10 的 FC 构建环境内执行：
+
+```sh
+cd src/cert-generator
+rm -rf python
+python3.10 -m pip install --no-cache-dir -r requirements.txt -t python
+python3.10 check_dependencies.py
+```
+
+上传时保持 `index.py`、`cas/`、`alidns/`、`scripts/`、`python/` 位于函数代码包根目录，入口仍为 `index.handler`。FC 环境变量 `PYTHONPATH` 使用 `/code/python:/code:/opt/python`，优先加载本次打包的依赖。若存在其他旧依赖层，也应避免其抢先覆盖打包版本。
+
+模板的杭州申请函数部署前钩子会清理并重建共享 `cert-generator/python/` 目录、运行自检；手工上传或单独部署新加坡申请函数时，应先按上述命令构建共享代码目录，再部署。两个申请函数都应更新到同一份新代码和依赖包。
+
+`check_dependencies.py` 验证锁定包的版本与来源、导入真实 FC 入口，并离线生成及验证一个 `.invalid` 域名的 RSA CSR。检查使用虚拟凭据并阻断网络，不会申请真实证书、更新 DNS 或访问云账户。GitHub 的 Check certificate dependencies 工作流在 Python 3.10 和 3.12 上执行同一检查。验证通过只说明依赖和本地 CSR 路径可用，实际签发仍需验证域名解析、角色权限与 ACME 连通性。
+
+仓库原有 main 发布工作流只负责上传 Serverless 应用模板，并不会更新你已有的 FC 实例。已有 FC 函数需要手工部署新代码包后，再使用原 domainName 测试事件调用。
+
+维护依赖时先修改 `src/cert-generator/requirements.in`，再使用 Python 3.10 解析约束生成锁定文件（例如 `uv pip compile src/cert-generator/requirements.in --python-version 3.10 --no-annotate --no-header -o src/cert-generator/requirements.txt`），并通过两种 Python 版本的 CI。不要直接用更高版本解释器的 pip freeze 覆盖 FC 3.10 锁定文件，否则会混入仅支持 Python 3.11+ 的间接依赖。
