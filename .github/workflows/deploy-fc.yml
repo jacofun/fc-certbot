@@ -20,7 +20,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: fc-certbot-deploy-${{ github.ref }}
+  group: fc-certbot-deploy-${{ github.repository }}
   cancel-in-progress: false
 
 jobs:
@@ -48,14 +48,18 @@ jobs:
           ALIYUN_FC_FUNCTION_NAME: ${{ vars.ALIYUN_FC_FUNCTION_NAME }}
         run: python scripts/deploy_fc.py --validate
       - name: Build and check dependencies in FC Python 3.10
+        timeout-minutes: 5
         shell: bash
         run: |
           set -euo pipefail
+          CA_BUNDLE="$(python -c 'import certifi; print(certifi.where())')"
           docker run --rm --platform linux/amd64 \
             --entrypoint /bin/bash \
             -v "$PWD/src/cert-generator:/code" \
+            -v "$CA_BUNDLE:/tmp/fc-build-ca.pem:ro" \
             -w /code \
             -e PYTHONPATH=/code/python:/code:/opt/python \
+            -e PIP_CONFIG_FILE=/dev/null \
             registry.cn-beijing.aliyuncs.com/aliyunfc/runtime-python3.10:build-latest@sha256:df76af127b5c66ed0af03a8685c86f60bead6e72db75bdcc416d1043ae86d641 \
             -lc '
               set -euo pipefail
@@ -63,7 +67,7 @@ jobs:
               python3 -c "import sys; assert sys.version_info[:2] == (3, 10), sys.version"
               python3 --version
               rm -rf python
-              python3 -m pip install --no-cache-dir --no-compile -r requirements.txt -t python
+              python3 -m pip install --index-url https://pypi.org/simple --cert /tmp/fc-build-ca.pem --retries 2 --timeout 20 --no-cache-dir --no-compile -r requirements.txt -t python
               python3 check_dependencies.py
               python3 -c "from certbot.main import main; main([\"--version\"])"
             '
