@@ -177,8 +177,11 @@ Repository variables：
 
 地域以证书申请函数所在地域为准，不是它管理证书的业务函数地域。模板中的申请函数位于杭州或新加坡；部署账号需要目标函数的 `fc:GetFunction` 和 `fc:UpdateFunction` 权限。现有函数必须为 `python3.10`、`index.handler`，不匹配时在写入前停止。
 
-推送 main 后，工作流会先验证部署配置，在 FC 官方 Python 3.10 构建镜像内重新安装锁定依赖、导入实际入口、生成离线 CSR，打包代码后通过官方 SDK 更新函数。PR 仅构建验证，不访问云账户。并发部署串行执行，过时的 main 提交不覆盖新版本。
+推送 main 后，工作流会先调用 GetFunction 验证部署凭据及目标函数，在 FC 官方 Python 3.10 构建镜像内重新安装锁定依赖、导入实际入口、生成离线 CSR，打包代码后通过官方 SDK 更新函数。PR 仅构建验证，不访问云账户。并发部署串行执行，过时的 main 提交不覆盖新版本。
 
 部署保持函数角色、触发器、运行时、入口、超时、网络及其他环境变量，只将 PYTHONPATH 调整为 `/code/python:/code:/opt/python` 优先，并将原有额外路径追加保留。已有运行配置和私密值不会写入日志或部署产物。上传后读回代码 CRC64、运行时及配置进行校验，Actions Summary 中记录 sourceCommit 与代码校验值，ZIP 包与验证报告可在本次 Actions 的 Artifacts 下载。
 
 工作流只更新配置所指向的一个现有申请函数，不创建应用中心模板中的其他函数，也不触发真实证书申请。若有其他地域的申请函数需要更新，请切换 Repository variables 到对应目标后，在 main 上执行 workflow_dispatch。实际申请使用原 domainName 测试事件，续期继续由已部署的定时管理函数负责。
+
+
+若工作流返回 `InvalidAccessKeyId.Inactive`，表示部署用 AccessKey 处于禁用状态。请在 RAM 中核对该 Key 的状态，并用有效且相互匹配的 AccessKey ID/Secret 更新本仓库对应 Secrets 后重跑；这项检查在依赖构建之前完成。模板发布 Token 与 FC 部署凭据不同，本部署工作流不读取 `alibaba_registry_v3_publish_token`。

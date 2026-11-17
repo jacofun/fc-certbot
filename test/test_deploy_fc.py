@@ -4,6 +4,7 @@ import io
 from pathlib import Path
 from types import SimpleNamespace
 import unittest
+from unittest.mock import patch
 import tempfile
 import zipfile
 
@@ -111,6 +112,24 @@ class DeployTests(unittest.TestCase):
         self.assertFalse((ROOT / ".github/workflows/registry-publish.yml").exists())
         step = deploy_step
         self.assertIn("steps.current.outputs.deploy", step["if"])
+
+    def test_preflight_checks_cloud_target_without_loading_or_uploading_package(self):
+        client = FakeClient()
+        env = {"ALIYUN_FC_REGION": "cn-hangzhou", "ALIYUN_FC_FUNCTION_NAME": "cert-generator-test",
+               "ALIYUN_FC_ACCESS_KEY_ID": "test-id", "ALIYUN_FC_ACCESS_KEY_SECRET": "test-secret"}
+        with patch.dict(module.os.environ, env), patch.object(module.sys, "argv", ["deploy_fc.py", "--preflight"]), \
+                patch.object(module, "Client", return_value=client), \
+                patch.object(module, "load_zip", side_effect=AssertionError("Preflight must not require a ZIP")):
+            self.assertEqual(module.main(), 0)
+        self.assertFalse(client.updated)
+
+    def test_disabled_accesskey_message_is_actionable_and_redacts_sdk_details(self):
+        error = RuntimeError("secret-must-not-be-logged")
+        error.code = "InvalidAccessKeyId.Inactive"
+        message = module.safe_sdk_failure(error)
+        self.assertIn("AccessKey is disabled", message)
+        self.assertIn("ALIYUN_FC_ACCESS_KEY_ID", message)
+        self.assertNotIn("secret-must-not-be-logged", message)
 
     def test_existing_correct_pythonpath_only_updates_code(self):
         client = FakeClient(ready_path=True)

@@ -99,12 +99,16 @@ def snapshot(function):
     return {key: value_of(getattr(function, key, None)) for key in PRESERVED_FIELDS}
 
 
-def deploy(client, target, package, *, sleep=time.sleep, now=time.monotonic):
-    name = target["functionName"]
-    # Do not create or overwrite a function with an unexpected runtime/handler.
-    current = client.get_function(name, models.GetFunctionRequest()).body
+def check_existing_function(client, target):
+    current = client.get_function(target["functionName"], models.GetFunctionRequest()).body
     if current.runtime != target["runtime"] or current.handler != target["handler"]:
         raise DeployError("Existing function must use runtime python3.10 and handler index.handler; stopped before writing.")
+    return current
+
+
+def deploy(client, target, package, *, sleep=time.sleep, now=time.monotonic):
+    name = target["functionName"]
+    current = check_existing_function(client, target)
     before = snapshot(current)
     environment = dict(current.environment_variables or {})
     environment["PYTHONPATH"] = bundled_pythonpath(environment.get("PYTHONPATH"))
@@ -161,11 +165,16 @@ def main():
     if "--validate" in sys.argv[1:]:
         print("Required FC deployment settings are present.")
         return 0
-    package = load_zip(root / "dist/cert-generator.zip")
     config = Config(access_key_id=credentials[0], access_key_secret=credentials[1],
                     endpoint=f"fcv3.{target['region']}.aliyuncs.com", connect_timeout=60000, read_timeout=180000)
+    client = Client(config)
+    if "--preflight" in sys.argv[1:]:
+        current = check_existing_function(client, target)
+        print(json.dumps({"event": "fc_target_validated", **target}))
+        return 0
+    package = load_zip(root / "dist/cert-generator.zip")
     print(f"Deploying {target['functionName']} in {target['region']}; updating code and bundled PYTHONPATH while preserving other configuration.")
-    result = deploy(Client(config), target, package)
+    result = deploy(client, target, package)
     (root / "dist/deploy-result.json").write_text(json.dumps(result, indent=2) + "\n")
     print(json.dumps(result))
     if os.environ.get("GITHUB_STEP_SUMMARY"):
@@ -176,6 +185,16 @@ def main():
     return 0
 
 
+def safe_sdk_failure(error):
+    code = getattr(error, "code", "")
+    code = code if isinstance(code, str) and re.fullmatch(r"[A-Za-z0-9_.-]{1,80}", code) else type(error).__name__
+    if code == "InvalidAccessKeyId.Inactive":
+        return ("Deployment failed (InvalidAccessKeyId.Inactive): the deployment AccessKey is disabled. "
+                "Update fc-certbot Repository secrets ALIYUN_FC_ACCESS_KEY_ID and ALIYUN_FC_ACCESS_KEY_SECRET "
+                "with a matching Active key pair, then rerun this workflow.")
+    return f"Deployment failed ({code}); check FC permissions and GitHub Actions network access."
+
+
 if __name__ == "__main__":
     try:
         sys.exit(main())
@@ -184,7 +203,5 @@ if __name__ == "__main__":
         sys.exit(1)
     except Exception as error:
         # Alibaba SDK exceptions can contain request bodies, signed URLs or envs.
-        code = getattr(error, "code", "")
-        code = code if isinstance(code, str) and re.fullmatch(r"[A-Za-z0-9_.-]{1,80}", code) else type(error).__name__
-        print(f"Deployment failed ({code}); check FC permissions and GitHub Actions network access.", file=sys.stderr)
+        print(safe_sdk_failure(error), file=sys.stderr)
         sys.exit(1)
