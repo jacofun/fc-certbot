@@ -150,7 +150,7 @@ class DeployTests(unittest.TestCase):
             path = Path(directory) / "code.zip"
             def write_zip(extra):
                 with zipfile.ZipFile(path, "w") as archive:
-                    for name in ["index.py", "requirements.txt", "cas/index.py", "alidns/index.py", "scripts/authenticator.sh", "scripts/cleanup.sh", "scripts/upload-certs.sh", "python/certbot/main.py", "python/acme/crypto_util.py", "python/OpenSSL/crypto.py"] + extra:
+                    for name in ["index.py", "dns_propagation.py", "requirements.txt", "cas/index.py", "alidns/index.py", "scripts/authenticator.sh", "scripts/cleanup.sh", "scripts/upload-certs.sh", "python/certbot/main.py", "python/acme/crypto_util.py", "python/OpenSSL/crypto.py"] + extra:
                         archive.writestr(name, "test")
             write_zip([])
             self.assertTrue(module.load_zip(path))

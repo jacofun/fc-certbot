@@ -51,7 +51,7 @@ def load_zip(path):
     try:
         with zipfile.ZipFile(io.BytesIO(data)) as archive:
             names = archive.namelist()
-            required = {"index.py", "requirements.txt", "cas/index.py", "alidns/index.py", "scripts/authenticator.sh", "scripts/cleanup.sh", "scripts/upload-certs.sh", "python/certbot/main.py", "python/acme/crypto_util.py", "python/OpenSSL/crypto.py"}
+            required = {"index.py", "dns_propagation.py", "requirements.txt", "cas/index.py", "alidns/index.py", "scripts/authenticator.sh", "scripts/cleanup.sh", "scripts/upload-certs.sh", "python/certbot/main.py", "python/acme/crypto_util.py", "python/OpenSSL/crypto.py"}
             if not required.issubset(names) or len(names) != len(set(names)):
                 raise DeployError("ZIP layout or dependencies are invalid.")
             if any(name.startswith("/") or ".." in Path(name).parts or

@@ -185,3 +185,23 @@ Repository variables：
 
 
 若工作流返回 `InvalidAccessKeyId.Inactive`，表示部署用 AccessKey 处于禁用状态。请在 RAM 中核对该 Key 的状态，并用有效且相互匹配的 AccessKey ID/Secret 更新本仓库对应 Secrets 后重跑；这项检查在依赖构建之前完成。模板发布 Token 与 FC 部署凭据不同，本部署工作流不读取 `alibaba_registry_v3_publish_token`。
+
+
+## 修复 DNS-01 的 NXDOMAIN 验证失败
+
+如果日志显示 `dns record added.` 后立即出现 `NXDOMAIN looking up TXT for _acme-challenge...`，表示 DNS API 写入已返回成功，但证书机构查询时尚未得到验证记录。申请函数现在在写入后先等待，再查询阿里公共 DNS 的 HTTPS JSON 接口，只有查到与本次 `CERTBOT_VALIDATION` 完全一致的 TXT 值才正常结束认证钩子。查询不发送云账号凭据或预期 TXT 值，不会把旧挑战的记录视为成功；无需新增 Python 依赖。
+
+新增两个可选 FC 环境变量，不配置即使用默认值：
+
+```json
+{
+  "DNS_PROPAGATION_SECONDS": "120",
+  "DNS_PROPAGATION_TIMEOUT_SECONDS": "600"
+}
+```
+
+`DNS_PROPAGATION_SECONDS` 是写入记录后的最短等待时间（30～300 秒）；之后每次未就绪时等待最多 10 秒再次查询。`DNS_PROPAGATION_TIMEOUT_SECONDS` 是包含初始等待在内的检查预算，须至少比初始等待多 10 秒，最多 600 秒。FC 函数超时使用模板的 900 秒，为 DNS 等待、签发和证书上传留出时间；部署脚本保留控制台已有超时，不会自动修改它。
+
+函数须能通过 HTTPS 访问 `dns.alidns.com`。日志中的 `dns_propagation_wait` 标记初始等待，`dns_propagation_check` 的 `status=ready` 表示已查到本次 TXT；`not_visible` 表示尚未生效，`lookup_error` 表示查询接口未正常完成。超时会输出待验证的完整记录名，不打印 TXT 验证值或原始 HTTP 错误体。Certbot 的人工认证钩子失败后仍会继续自己的错误处理，排查时应同时查看钩子错误及最终 ACME 错误。
+
+公网检查不能代表所有权威服务器和证书机构的查询位置；若等待后仍失败，需核对注册商实际委派的 NS、TXT 所属解析区域、DNSSEC 状态及函数出网，而不是只检查控制台是否有记录。失败调用会运行原清理钩子删除 TXT，因此调用结束后记录消失属于清理行为；下一次调用会生成新挑战值，不能手工复用上一轮值。

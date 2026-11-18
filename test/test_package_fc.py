@@ -29,6 +29,7 @@ class PackageTests(unittest.TestCase):
             with ZipFile(output) as archive:
                 files = archive.namelist()
                 self.assertIn("index.py", files)
+                self.assertIn("dns_propagation.py", files)
                 self.assertIn("python/certbot/main.py", files)
                 self.assertFalse(any(".env" in name or "__pycache__" in name for name in files))
                 self.assertEqual((archive.getinfo("scripts/authenticator.sh").external_attr >> 16) & 0o777, 0o755)

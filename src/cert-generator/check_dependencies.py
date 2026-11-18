@@ -29,6 +29,8 @@ def main():
 
     for name in ("certbot.main", "acme.crypto_util", "josepy", "OpenSSL.crypto"):
         importlib.import_module(name)
+    # The DNS wait helper must also be present in a hand-uploaded source package.
+    importlib.import_module("dns_propagation")
 
     # Import the actual FC entrypoint with dummy credentials, blocking all network
     # access so this check cannot issue a certificate or modify a DNS record.

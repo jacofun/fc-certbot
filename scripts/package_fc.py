@@ -4,7 +4,7 @@ from zipfile import ZipFile, ZIP_DEFLATED
 
 
 SOURCE_FILES = (
-    "index.py", "authenticator.py", "cleanup.py", "requirements.txt",
+    "index.py", "authenticator.py", "cleanup.py", "dns_propagation.py", "requirements.txt",
     "check_dependencies.py", "cas/index.py", "alidns/index.py",
     "scripts/authenticator.sh", "scripts/cleanup.sh", "scripts/upload-certs.sh",
 )
