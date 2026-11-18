@@ -57,7 +57,7 @@ def wait_for_txt(name, expected, delay=120, timeout=600, *,
     sleep(delay)
     while clock() < deadline:
         try:
-            found = expected in lookup(name, min(5, deadline - clock()))
+            found = expected in lookup(name, min(15, deadline - clock()))
         except Exception:
             # Do not print HTTP error bodies or request credentials from libraries.
             found = False
